@@ -1,0 +1,26 @@
+apiVersion: tekton.dev/v1beta1
+kind: PipelineRun
+metadata:
+  name: build-and-test-run
+spec:
+  # Use service account with git and image repo credentials
+  pipelineRef:
+    name: build-and-test
+  params:
+  # - name: OUTPUT_IMAGE
+  #   value: HELLOWORLD_REMOTE_IMAGE
+  - name: CONFIGMAP_PREFIX
+    value: RH_HELLOWORLD
+  workspaces:
+  - name: config
+    configMap:
+      name: environment
+  - name: argocd-secret
+    secret:
+      secretName: argocd-secret
+  - name: github-secret
+    secret:
+      secretName: github-secret
+  - name: gitrepos
+    persistentVolumeClaim:
+      claimName: build-images
