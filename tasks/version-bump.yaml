@@ -1,0 +1,86 @@
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: version-bumping
+spec:
+  workspaces:
+    - name: gitrepos
+      description: The git repo will be cloned onto the volume backing this workspace
+  params:
+  - name: subdirectory
+    description: subdirectory inside the "gitrepos" workspace to clone the git repo into
+    type: string
+    default: "dev"
+  - name: componentName
+    description: name of the component which is versioned
+    type: string
+  - name: versionFilePath
+    description: Path of the version file where version number is stored
+    type: string
+  results:
+  - name: image-tag
+    description: the new build image version based on the last tags and VERSION file
+  - name: git-tag
+    description: the new build git tag version based on the last tags and VERSION file
+  steps:
+  - name: get-current-tag
+    image: gcr.io/tekton-releases/github.com/tektoncd/pipeline/cmd/git-init:v0.11.0
+    script: |
+      VERSION_GLOB="build-$(params.componentName)-$(cat $(params.versionFilePath))-*"
+
+      # existing tag based on glob
+      LAST_TAG=$(git tag --sort "version:refname" -l $VERSION_GLOB | tail -n 1)
+      EXIT_CODE="$?"
+      if [ "$EXIT_CODE" != 0 ] ; then
+        exit $EXIT_CODE
+      fi
+
+      if [ "$LAST_TAG" == "" ]; then
+        LAST_TAG="build-$(params.componentName)-$(cat $(params.versionFilePath))-0"
+      fi
+      echo -n "$LAST_TAG" >/scratch/VERSION
+    volumeMounts:
+    - mountPath: /scratch
+      name: scratch
+    workingDir: $(workspaces.gitrepos.path)/$(params.subdirectory)
+  - name: bump-tag
+    image: quay.io/hluong/bumpversion:latest
+    script: |
+      cd /scratch
+      echo -e "[bumpversion]\ncurrent_version = $(cat VERSION)" >.bumpversion.cfg
+      cat <<EOF >>.bumpversion.cfg
+      commit = False
+      tag = False
+      parse = (?P<prefix>.*)\-(?P<major>\d+)\.(?P<minor>\d+)\.(?P<patch>\d+)\-(?P<build>\d+)
+      serialize = {prefix}-{major}.{minor}.{patch}-{build:03d}
+
+      [bumpversion:part:build]
+
+      [bumpversion:file:VERSION]
+      EOF
+
+      bump2version build /scratch/VERSION
+
+      sed "s/build-$(params.componentName)-//" /scratch/VERSION >$(results.image-tag.path)
+    volumeMounts:
+    - mountPath: /scratch
+      name: scratch
+    workingDir: $(workspaces.gitrepos.path)/$(params.subdirectory)
+
+  - name: tag-repo
+    image: gcr.io/tekton-releases/github.com/tektoncd/pipeline/cmd/git-init:v0.11.0
+    script: |
+      VERSION=$(cat /scratch/VERSION)
+      git tag $VERSION
+      EXIT_CODE="$?"
+      if [ "$EXIT_CODE" != 0 ] ; then
+        exit $EXIT_CODE
+      fi
+      echo -n "$VERSION" > $(results.git-tag.path)
+    volumeMounts:
+    - mountPath: /scratch
+      name: scratch  
+    workingDir: $(workspaces.gitrepos.path)/$(params.subdirectory)
+  volumes:
+    - name: scratch
+      emptyDir: {}

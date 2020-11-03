@@ -1,0 +1,25 @@
+apiVersion: tekton.dev/v1alpha1
+kind: Task
+metadata:
+  name: helloworld-functional-test
+spec:
+  workspaces:
+  - name: gitrepos
+    description: The git repo will be cloned onto the volume backing this workspace
+  params:
+  - name: subdirectory
+    description: subdirectory inside the "gitrepos" workspace to clone the git repo into
+    type: string
+    default: ""
+  - name: PATH_CONTEXT
+    description: defines the path where to run unittest
+    type: string
+  steps:
+  - name: run-unittest
+    image: frolvlad/alpine-python3
+    script: |
+      pip3 install Flask
+      pip3 install pytest
+      cd $(workspaces.gitrepos.path)/$(params.subdirectory)/$(params.PATH_CONTEXT)
+      python -m pytest --setup-show tests/functional/test_functional.py
+    workingDir: $(workspaces.gitrepos.path)/$(params.subdirectory)
