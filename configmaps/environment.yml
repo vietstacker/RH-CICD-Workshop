@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: environment
+data:
+  RH_HELLOWORLD_REMOTE_IMAGE: quay.io/hluong/helloworld-python
+  GIT_EMAIL: "tuantuluong@gmail.com"
+  GIT_USERNAME: "Tutj"
+  GIT_DEV_REPO_URL: https://github.com/vietstacker/RH-Helloworld-dev.git
+  GIT_OPS_REPO_PROD_URL: https://github.com/vietstacker/RH-Helloworld-ops.git
+  GIT_OPS_REPO_TEST_URL: https://github.com/vietstacker/RH-Helloworld-ops.git
+  RH_HELLOWORLD_TEST_KUSTOMIZATION_PATH: config/test_env/kustomization.yaml
+  RH_HELLOWORLD_PROD_KUSTOMIZATION_PATH: config/prod_env/kustomization.yaml
+  RH_HELLOWORLD_YAML_PATH: images.(name==rh-helloworld).newTag
+  RH_HELLOWORLD_PROD_IMAGESTREAM_PATH: config/prod_env/rh-helloworld-is-prod.yaml
