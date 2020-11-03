@@ -1,0 +1,254 @@
+apiVersion: tekton.dev/v1beta1
+kind: Pipeline
+metadata:
+  name: build-and-test
+spec:
+  workspaces:
+  - name: gitrepos
+  - name: config
+  - name: github-secret
+  - name: argocd-secret
+  # - name: quay-secret
+  params:
+  - name: LOCAL_IMAGE
+    type: string
+    default: image-registry.openshift-image-registry.svc:5000/rh-helloworld-dev-env/rh-helloworld
+  - name: PATH_CONTEXT
+    type: string
+    default: backend
+  - name: COMPONENT_NAME
+    type: string
+    default: helloworld
+  - name: CONFIGMAP_PREFIX
+    type: string
+  - name: CHAINED_BUILD_DOCKERFILE 
+    type: string 
+    default: ""
+  - name: DEV_REVISION 
+    type: string 
+    default: master
+  tasks:
+  - name: git-clone-dev-environment
+    taskRef:
+      name: git-clone-with-tags
+    workspaces:
+    - name: gitrepos
+      workspace: gitrepos
+    - name: config
+      workspace: config
+    params:
+    - name: url_configmapkey
+      value: GIT_DEV_REPO_URL
+    - name: revision
+      value: $(params.DEV_REVISION)
+    - name: subdirectory
+      value: dev
+    - name: deleteExisting
+      value: "true"
+
+  - name: run-unittest
+    runAfter:
+    - git-clone-dev-environment
+    taskRef:
+      name: helloworld-unittest
+    workspaces:
+    - name: gitrepos
+      workspace: gitrepos
+    params:
+    - name: subdirectory
+      value: dev
+    - name: PATH_CONTEXT
+      value: $(params.PATH_CONTEXT)
+
+  - name: run-functional-test
+    runAfter:
+    - run-unittest
+    taskRef:
+      name: helloworld-functional-test 
+    workspaces:
+    - name: gitrepos
+      workspace: gitrepos
+    params:
+    - name: subdirectory
+      value: dev
+    - name: PATH_CONTEXT
+      value: $(params.PATH_CONTEXT)
+
+  - name: bump-build-version
+    taskRef:
+      name: version-bumping
+    runAfter:
+    - git-clone-dev-environment
+    workspaces:
+    - name: gitrepos
+      workspace: gitrepos
+    params:
+    - name: componentName
+      value: $(params.COMPONENT_NAME)
+    - name: versionFilePath
+      value: $(params.PATH_CONTEXT)/VERSION
+
+  # TODO: Chinh lai buildah de build va push vao trong local imagestream cua openshift
+  # Task nay se ko push image vao trong quay.io
+  - name: build-image
+    taskRef:
+      name: buildah
+    runAfter:
+    - bump-build-version
+    - run-functional-test
+    workspaces:
+    - name: gitrepos
+      workspace: gitrepos
+    - name: config
+      workspace: config
+    params:
+    - name: OUTPUT_IMAGE
+      value: $(params.LOCAL_IMAGE)
+    - name: PATH_CONTEXT
+      value: $(params.PATH_CONTEXT)
+    - name: TLSVERIFY
+      value: "false"
+    - name: TAG
+      value: $(tasks.bump-build-version.results.image-tag)
+
+  - name: push-dev-tag
+    taskRef:
+      name: github-push
+    runAfter:
+    - build-image
+    workspaces:
+    - name: gitrepos
+      workspace: gitrepos
+    - name: github-secret
+      workspace: github-secret
+    params:
+    - name: PUSH_FLAGS
+      value: origin $(tasks.bump-build-version.results.git-tag)
+
+  - name: git-clone-ops-environment
+    taskRef:
+      name: git-clone-with-tags
+    workspaces:
+    - name: gitrepos
+      workspace: gitrepos
+    - name: config
+      workspace: config
+    params:
+    - name: url_configmapkey
+      value: GIT_OPS_REPO_TEST_URL
+    - name: revision
+      value: master
+    - name: subdirectory
+      value: ops
+    - name: deleteExisting
+      value: "true"
+  - name: modify-ops-test
+    taskRef:
+      name: gitops-imagetag
+    runAfter:
+    - bump-build-version
+    - git-clone-ops-environment
+    workspaces:
+    - name: gitrepos
+      workspace: gitrepos
+    - name: config
+      workspace: config
+    params:
+    - name: CONFIGMAP_PREFIX
+      value: $(params.CONFIGMAP_PREFIX)
+    - name: ENVIRONMENT
+      value: TEST
+    - name: TAG
+      value: $(tasks.bump-build-version.results.image-tag)
+    - name: subdirectory
+      value: ops
+    
+  - name: commit-ops-test
+    taskRef:
+      name: git-commit
+    runAfter:
+    - modify-ops-test
+    workspaces:
+    - name: gitrepos
+      workspace: gitrepos
+    - name: config
+      workspace: config
+    params:
+    - name: subdirectory
+      value: ops
+
+  - name: push-ops-test
+    taskRef:
+      name: github-push
+    runAfter:
+    - push-dev-tag
+    - commit-ops-test
+    workspaces:
+    - name: gitrepos
+      workspace: gitrepos
+    - name: github-secret
+      workspace: github-secret
+    params:
+    - name: subdirectory
+      value: ops
+    - name: PUSH_FLAGS
+      value: -u origin master
+
+  - name: argocd-sync
+    taskRef:
+      name: argocd-sync-and-wait
+    runAfter:
+    - push-ops-test
+    workspaces:
+    - name: argocd-secret
+      workspace: argocd-secret
+    - name: config
+      workspace: config
+    params:
+    - name: application-name
+      value: build-and-test
+    - name: flags
+      value: --insecure
+
+  #   - name: end-to-end-test
+  #     taskRef: 
+  #       name: tkn
+  #     runAfter:
+  #     - argocd-sync
+  #     params:
+  #     - name: ARGS
+  #       value: 
+  #       - pipeline
+  #       - start 
+  #       - end-to-end
+  #       - --showlog 
+  #       - --nocolour
+
+    # - name: cleanup
+    #   taskRef:
+    #     name: cleanup
+    #   runAfter:
+    #   - end-to-end-test
+    #   workspaces:
+    #   - name: gitrepos
+    #     workspace: gitrepos
+    #   - name: config 
+    #     workspace: config
+    #   - name: github-secret
+    #     workspace: github-secret
+    #   params:
+    #   - name: subdirectory
+    #     value: dev
+    #   - name: COMPONENT_NAME
+    #     value: $(params.COMPONENT_NAME)
+    
+  - name: trigger-staging
+    taskRef: 
+      name: openshift-instantiate-trigger
+    runAfter:
+    - argocd-sync
+    params:
+    - name: TEMPLATE
+      value: stage-production-pipelinerun
+    - name: PARAMS
+      value: -p TAG=$(tasks.bump-build-version.results.image-tag) -p CONFIGMAP_PREFIX=$(params.CONFIGMAP_PREFIX) -p SOURCE_IMAGE=$(params.LOCAL_IMAGE) -p COMPONENT_NAME=$(params.COMPONENT_NAME)
