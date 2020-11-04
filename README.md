@@ -50,6 +50,14 @@ argocd-repo-server                               1/1     Running   0          1m
 argocd-server                                    1/1     Running   0          1m
 ```
 
+- Create an CICD environment
+
+```bash
+cd ~/RH-Helloworld-ops
+oc apply -k config/cicd_env
+```
+
+
 - Deploy Argo applications that are test enviroment and production environment
 
 ```bash
