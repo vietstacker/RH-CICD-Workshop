@@ -96,3 +96,11 @@ oc apply -k . -n rh-helloworld-ci
 cd ~/RH-CICD-Workshop
 oc apply -f pipelines-run/build-helloworld.yaml -n rh-helloworld-ci
 ```
+
+3. Check the ArgoCD GUI
+- Go to the Routes under "argocd" namespace and access to the route of argocd.
+
+4. Check the application running
+- Go to the Routes under "rh-helloworld-dev-env" namespace for testing app running in Dev environment
+- Go to the Routes under "rh-helloworld-prod-env" namespace for testing app running in Prod environment
+- In each route above, the correct API is: <route>/api/hello => Result: HelloWorld from RedHat (1)
