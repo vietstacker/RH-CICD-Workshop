@@ -94,5 +94,5 @@ oc apply -k . -n rh-helloworld-ci
 2. Running an end-to-end "build, test" on a CICD environment and then "deploy" on a production environment
 ```bash
 cd ~/RH-CICD-Workshop
-oc apply -f pipelines-run/build-helloworld.yaml
+oc apply -f pipelines-run/build-helloworld.yaml -n rh-helloworld-ci
 ```
